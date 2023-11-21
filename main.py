@@ -1,8 +1,9 @@
 import mysql.connector
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, session
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-
+app.secret_key = 'mortadela1'
 db_config = {
     "host": "localhost",
     "user": "root",
@@ -12,6 +13,55 @@ db_config = {
 
 connection = mysql.connector.connect(**db_config)
 print("banco de dados conectado com sucesso")
+
+
+@app.route("/cadastro", methods=['POST'])
+def fazer_cadastro():
+    dados_json = request.get_json()
+
+    try:
+        with connection.cursor() as cursor:
+            senha_criptografada = generate_password_hash(dados_json["senha"])
+            query = "INSERT INTO cliente (nome,cpf,cep,email,senha) VALUES (%s,%s,%s,%s,%s)"
+            values = (
+                dados_json["nome"],
+                dados_json["cpf"],
+                dados_json["cep"],
+                dados_json["email"],
+                senha_criptografada
+
+            )
+            cursor.execute(query, values)
+            connection.commit()
+            return jsonify({"mensagem": "usuário cadastrado com sucesso"})
+    except Exception as e:
+        return jsonify({"mensagem": f"erro ao adicionar usuario{str(e)}"})
+
+
+@app.route("/login", methods=['POST'])
+def fazer_login():
+    dados_json = request.get_json()
+
+    try:
+        with connection.cursor() as cursor:
+            query = "SELECT * FROM cliente WHERE email = %s"
+            cursor.execute(query, (dados_json["email"],))
+            user = cursor.fetchone()
+
+            if user and check_password_hash(user[5], dados_json['senha']):
+                session['idcliente'] = user[0]
+                session['email'] = user[4]
+                return jsonify({"mensagem": "Login bem-sucedido"})
+            else:
+                return jsonify({"mensagem": "Credenciais inválidas"})
+    except Exception as e:
+        return jsonify({"mensagem": f"Erro ao fazer login: {str(e)}"})
+
+
+@app.route("/logout", methods=['GET'])
+def fazer_logout():
+    session.clear()
+    return jsonify({"mensagem": "Logout bem-sucedido"})
 
 
 @app.route("/pedido", methods=['POST'])
@@ -30,9 +80,8 @@ def fazer_pedido():
 
     try:
         with connection.cursor() as cursor:
-            query = "INSERT INTO pedido (produto_id, nome_produto, quantidade_produto, tamanho_produto, preco_produto, valor_total) VALUES (%s, %s, %s, %s, %s, %s)"
+            query = "INSERT INTO pedido (nome_produto, quantidade_produto, tamanho_produto, preco_produto, valor_total) VALUES (%s, %s, %s, %s, %s)"
             values = (
-                dados_json["produto_id"],
                 dados_json["nome_produto"],
                 dados_json["quantidade_produto"],
                 dados_json["tamanho_produto"],
@@ -44,50 +93,6 @@ def fazer_pedido():
             return jsonify({"mensagem": "Produto adicionado com sucesso"})
     except Exception as e:
         return jsonify({"erro": f"Erro ao adicionar produto: {str(e)}"})
-
-
-@app.route("/protese", methods=['GET'])
-def get_proteses():
-    return jsonify(proteses=select_from_protese())
-
-
-@app.route("/produtos", methods=['GET'])
-def get_produtos():
-    return jsonify(produtos=select_from_produto())
-
-
-@app.route("/pedidos", methods=['GET'])
-def get_pedidos():
-    return jsonify(pedidos=select_from_pedidos())
-
-
-def select_from_protese():
-    cursor = connection.cursor()
-    try:
-        cursor.execute("SELECT * FROM protese")
-        records = cursor.fetchall()
-        print("Total number of rows in protese is: ", cursor.rowcount)
-
-        print("\nPrinting each protese record")
-
-        listaProtese = []
-
-        for row in records:
-            listaProtese.append(
-                {
-                    "id_protese": row[0],
-                    "nome": row[1],
-                    "descricao": row[2],
-                    "valor": row[3],
-                },
-            )
-
-        return listaProtese
-    except Exception as e:
-        return jsonify({"erro": f"Erro ao obter dados de protese: {str(e)}"})
-    finally:
-        if connection.is_connected():
-            cursor.close()
 
 
 def select_from_pedidos():
@@ -130,10 +135,10 @@ def select_from_produto():
 
         print("\nPrinting each produto record")
 
-        listaProdutos = []
+        listaprodutos = []
 
         for row in records:
-            listaProdutos.append(
+            listaprodutos.append(
                 {
                     "idproduto": row[0],
                     "nome": row[1],
@@ -146,12 +151,22 @@ def select_from_produto():
                 },
             )
 
-        return listaProdutos
+        return listaprodutos
     except Exception as e:
         return jsonify({"erro": f"Erro ao obter dados de produto: {str(e)}"})
     finally:
         if connection.is_connected():
             cursor.close()
+
+
+@app.route("/produtos", methods=['GET'])
+def get_produtos():
+    return jsonify(produtos=select_from_produto())
+
+
+@app.route("/pedidos", methods=['GET'])
+def get_pedidos():
+    return jsonify(pedidos=select_from_pedidos())
 
 
 if __name__ == "__main__":
